@@ -50,6 +50,8 @@ export default function LearningSession() {
   const streamRef = useRef(null);
   
   const [expressionStatus, setExpressionStatus] = useState('Initializing Vision...');
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
 
   // Auto-scroll
   useEffect(() => {
@@ -108,10 +110,64 @@ export default function LearningSession() {
         }
       ]);
       setIsThinking(false);
+      speakMessage(introMessage || "Welcome to today's learning session. How are you doing?");
     };
 
     startSession();
   }, [hasPermissions, currentDay, curriculum, selectedBootcamp, messages.length]);
+
+  // --- Voice Setup ---
+  const speakMessage = (text) => {
+    if (!window.speechSynthesis) return;
+    const utterance = new SpeechSynthesisUtterance(text.replace(/\*/g, '')); // Strip markdown
+    const voices = window.speechSynthesis.getVoices();
+    // Try to find a good English voice
+    utterance.voice = voices.find(v => v.lang.includes('en') && (v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel'))) || voices[0];
+    utterance.rate = 1.05;
+    utterance.pitch = 0.95;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setInput(transcript);
+        setIsListening(false);
+        // We defer sending message slightly so state updates first
+        setTimeout(() => document.getElementById('session-send-btn')?.click(), 100);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error', event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) return alert("Speech recognition not supported in this browser.");
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
+  // -------------------
 
   // Init Webcam and FaceAPI
   useEffect(() => {
@@ -207,6 +263,7 @@ export default function LearningSession() {
       onDone: (full) => {
         setMessages((p) => p.map((m) => m.id === aId ? { ...m, content: full, streaming: false } : m));
         setIsStreaming(false);
+        speakMessage(full);
       },
       onError: (err) => {
         setMessages((p) => p.map((m) => m.id === aId ? { ...m, content: err, streaming: false } : m));
@@ -423,8 +480,22 @@ export default function LearningSession() {
                     lineHeight: 1.5, padding: '8px 0',
                   }}
                 />
-                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px', padding: '4px' }}>🎙</button>
+                <button 
+                  onClick={toggleListening}
+                  style={{ 
+                    background: isListening ? 'rgba(244,63,94,0.2)' : 'none', 
+                    border: `1px solid ${isListening ? 'rgba(244,63,94,0.5)' : 'transparent'}`,
+                    borderRadius: '8px', cursor: 'pointer', 
+                    color: isListening ? 'var(--rose-400)' : 'var(--text-muted)', 
+                    fontSize: '18px', padding: '4px 8px',
+                    transition: 'all 0.2s ease',
+                    animation: isListening ? 'pulse-dot 1.5s infinite' : 'none'
+                  }}
+                >
+                  🎙
+                </button>
                 <button
+                  id="session-send-btn"
                   onClick={isStreaming ? () => abortRef.current?.abort() : sendMessage}
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer', 
