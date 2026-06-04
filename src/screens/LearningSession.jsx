@@ -1,20 +1,12 @@
 /**
- * LearningSession — AI-powered lesson screen
- * Exact match to reference: chat center, video panel top-right, curriculum sidebar right,
- * left sidebar with Neural Progress, LIVE ANALYSIS bar at top
+ * LearningSession — AI-powered live bootcamp session
+ * Layout matches reference image exactly: edge-to-edge, chat on left, 
+ * floating Vishesh live video panel on right, curriculum on right sidebar.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
-import Sidebar from '../components/Sidebar';
-import { streamVisheshResponse } from '../lib/vishesh';
-
-const CURRICULUM = [
-  { day: 1, topic: 'Neural Foundations', status: 'complete' },
-  { day: 14, topic: 'Optimization Strategies', status: 'active', sublabel: 'Active Session · LORA focus' },
-  { day: 15, topic: 'Milestone Assessment', status: 'locked', sublabel: 'Phase 1 Final Validation' },
-  { day: 22, topic: 'Deployment & Scale', status: 'pending' },
-  { day: 30, topic: 'Final Validation', status: 'locked', sublabel: 'Certification Day' },
-];
+import { streamVisheshResponse, generateLessonIntro } from '../lib/vishesh';
+import SessionStartModal from '../components/SessionStartModal';
 
 function AnimatedWaveform({ active }) {
   const heights = [0.4, 0.7, 1, 0.6, 0.9, 0.5, 0.8, 1, 0.7, 0.5, 0.9, 0.6, 0.8, 0.4, 0.7, 1, 0.6, 0.5];
@@ -38,37 +30,83 @@ function AnimatedWaveform({ active }) {
 
 export default function LearningSession() {
   const { state, dispatch, navigate } = useApp();
-  const { selectedBootcamp, currentDay, ollamaOnline, ollamaModel } = state;
+  const { selectedBootcamp, currentDay, ollamaOnline, ollamaModel, user } = state;
 
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: `Tell me about a time you had to customize a large model for a specific use case. What approach did you take?`,
-      id: 'init-1',
-    },
-    {
-      role: 'user',
-      content: `We looked at a few options but landed on LoRA — it was the right balance for what we needed.`,
-      id: 'init-2',
-    },
-    {
-      role: 'assistant',
-      content: `Walk me through that. Can you sketch out on the whiteboar_`,
-      id: 'init-3',
-      streaming: false,
-    },
-  ]);
+  const [hasPermissions, setHasPermissions] = useState(false);
+  const [curriculum, setCurriculum] = useState([]);
+  const [loadingCurriculum, setLoadingCurriculum] = useState(true);
+  
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [sessionId] = useState(() => `0x${Math.random().toString(16).slice(2, 8).toUpperCase()}-${Math.random().toString(16).slice(2, 4).toUpperCase()}`);
+  const [sessionId] = useState(`Bootcamp-${Math.random().toString(16).slice(2, 5).toUpperCase()}`);
+  
   const abortRef = useRef(null);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isStreaming, isThinking]);
+
+  // Fetch Curriculum from backend
+  useEffect(() => {
+    const fetchCurriculum = async () => {
+      try {
+        if (!user?.id) return;
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/curriculum/${user.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setCurriculum(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch curriculum:", err);
+      } finally {
+        setLoadingCurriculum(false);
+      }
+    };
+    fetchCurriculum();
+  }, [user]);
+
+  // Generate initial teaching message once permissions are granted
+  useEffect(() => {
+    if (!hasPermissions) return;
+    if (messages.length > 0) return;
+
+    const startSession = async () => {
+      setIsThinking(true);
+      const isValidation = currentDay === 15 || currentDay === 30;
+      
+      let introMessage = "";
+      if (isValidation) {
+        introMessage = "Welcome to your Milestone Validation. I will be assessing your knowledge across the topics we've covered. Are you ready to begin?";
+      } else {
+        // Teach mode
+        const topic = curriculum.find(c => c.day === currentDay)?.topic || 'Optimization Strategies';
+        const bootcampName = selectedBootcamp?.name || 'AI Engineering';
+        
+        try {
+          introMessage = await generateLessonIntro({ bootcamp: bootcampName, topic, day: currentDay });
+        } catch (err) {
+          introMessage = `Welcome back. Today we are covering ${topic}. Let's dive in.`;
+        }
+      }
+
+      setMessages([
+        {
+          role: 'assistant',
+          content: introMessage || "Welcome to today's learning session. How are you doing?",
+          id: 'init-1',
+          streaming: false,
+        }
+      ]);
+      setIsThinking(false);
+    };
+
+    startSession();
+  }, [hasPermissions, currentDay, curriculum, selectedBootcamp, messages.length]);
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
@@ -86,11 +124,15 @@ export default function LearningSession() {
 
     abortRef.current = new AbortController();
     const history = messages.slice(-10).map((m) => ({ role: m.role, content: m.content }));
+    
+    // Inject teaching persona context
+    const isValidation = currentDay === 15 || currentDay === 30;
+    const modeContext = isValidation ? "Validation Mode: Assess the user" : "Teaching Mode: Instruct, explain, and interactively guide the user.";
 
     await streamVisheshResponse({
       userMessage: text,
       history,
-      context: `${selectedBootcamp?.name || 'AI Engineering'} — Day ${currentDay} — Optimization Strategies`,
+      context: `${selectedBootcamp?.name || 'AI Engineering'} — Day ${currentDay} — ${modeContext}`,
       model: ollamaModel,
       abortController: abortRef.current,
       onToken: (_, full) => {
@@ -117,141 +159,142 @@ export default function LearningSession() {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-void)', overflow: 'hidden' }}>
-      {/* LEFT SIDEBAR */}
-      <Sidebar />
-
-      {/* MAIN AREA */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-        {/* TOP NAV — matches reference exactly */}
+    <>
+      {!hasPermissions && <SessionStartModal onJoin={() => setHasPermissions(true)} />}
+      
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-void)', overflow: 'hidden' }}>
+        
+        {/* TOP NAV — Matches reference exactly */}
         <nav style={{
-          height: '52px', background: 'rgba(5,5,8,0.95)', backdropFilter: 'blur(20px)',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex', alignItems: 'center', padding: '0 24px',
+          height: '56px', background: 'var(--bg-void)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+          display: 'flex', alignItems: 'center', padding: '0 32px',
           gap: '0', flexShrink: 0, position: 'relative', zIndex: 10,
         }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: '20px', marginRight: '32px', letterSpacing: '-0.02em' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: '20px', marginRight: '40px', letterSpacing: '-0.02em', color: 'white' }}>
             SYNAPSE
           </div>
           {['Curriculum', 'Network', 'Simulations'].map((item, i) => (
             <button key={item} style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              fontFamily: 'var(--font-mono)', fontSize: '13px',
-              color: i === 0 ? 'var(--text-primary)' : 'var(--text-muted)',
-              padding: '0 16px', height: '100%',
+              fontFamily: 'var(--font-mono)', fontSize: '14px',
+              color: i === 0 ? 'var(--violet-300)' : 'var(--text-muted)',
+              padding: '0 20px', height: '100%',
               borderBottom: i === 0 ? '2px solid var(--violet-500)' : '2px solid transparent',
               fontWeight: i === 0 ? 600 : 400,
               transition: 'color 0.15s ease',
-            }}
-            onMouseEnter={(e) => { if (i !== 0) e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={(e) => { if (i !== 0) e.currentTarget.style.color = 'var(--text-muted)'; }}
-            >{item}</button>
+            }}>
+              {item}
+            </button>
           ))}
 
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '16px', padding: '4px 8px' }}>⊡</button>
-            <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '16px', padding: '4px 8px' }}>🔔</button>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px' }}>⊡</button>
+            <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px' }}>🔔</button>
             <button
               onClick={completeLesson}
-              id="lesson-neural-link-btn"
               style={{
-                padding: '8px 20px',
+                padding: '10px 24px',
                 background: 'linear-gradient(135deg, var(--violet-600), var(--violet-500))',
-                border: 'none', borderRadius: '8px', cursor: 'pointer',
-                fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: 700,
+                border: 'none', borderRadius: '4px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 700,
                 color: 'white', letterSpacing: '0.04em',
-                boxShadow: '0 0 16px rgba(124,58,237,0.4)',
-                transition: 'all 0.2s ease',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 0 28px rgba(124,58,237,0.6)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 0 16px rgba(124,58,237,0.4)'; }}
             >Launch Neural Link</button>
             <div style={{
               width: 36, height: 36, borderRadius: '50%',
-              background: 'linear-gradient(135deg, var(--violet-700), var(--violet-500))',
+              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '14px', border: '1px solid rgba(139,92,246,0.3)', cursor: 'pointer',
-            }}>👤</div>
+              cursor: 'pointer',
+            }}>
+              <span style={{ fontSize: '16px', color: 'var(--cyan-400)' }}>👤</span>
+            </div>
           </div>
         </nav>
 
-        {/* LIVE ANALYSIS BAR */}
+        {/* SUB NAV: LIVE ANALYSIS BAR */}
         <div style={{
-          height: '44px', background: 'rgba(8,8,14,0.9)',
-          borderBottom: '1px solid var(--border-subtle)',
+          height: '48px', background: 'var(--bg-void)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
           display: 'flex', alignItems: 'center',
-          padding: '0 24px', gap: '16px', flexShrink: 0,
+          padding: '0 32px', gap: '24px', flexShrink: 0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="dot-live" />
-            <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan-400)', letterSpacing: '0.1em' }}>LIVE ANALYSIS</span>
+            <div className="dot-live" style={{ width: 8, height: 8, background: 'var(--cyan-400)', borderRadius: '50%', boxShadow: '0 0 8px var(--cyan-400)' }} />
+            <span style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan-400)', letterSpacing: '0.1em' }}>LIVE ANALYSIS</span>
           </div>
-          <div style={{ width: '1px', height: '16px', background: 'var(--border-default)' }} />
-          <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+          <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.1)' }} />
+          <span style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
             Session ID: {sessionId}
           </span>
           <div style={{ marginLeft: 'auto' }}>
             <span style={{
-              fontSize: '10px', fontFamily: 'var(--font-mono)', fontWeight: 700,
-              padding: '4px 12px',
-              background: 'rgba(124,58,237,0.15)',
-              border: '1px solid rgba(124,58,237,0.35)',
-              borderRadius: '4px', color: 'var(--violet-300)', letterSpacing: '0.1em',
-            }}>NEURAL LINK ACTIVE</span>
+              fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 700,
+              padding: '6px 16px',
+              background: 'rgba(124,58,237,0.1)',
+              border: '1px solid rgba(124,58,237,0.3)',
+              borderRadius: '4px', color: 'var(--violet-400)', letterSpacing: '0.1em',
+            }}>LEARNING SESSION ACTIVE</span>
           </div>
         </div>
 
-        {/* CONTENT ROW */}
+        {/* MAIN LAYOUT */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-          {/* CENTER — Chat */}
+          {/* LEFT: CHAT AREA */}
           <div style={{
             flex: 1,
             display: 'flex', flexDirection: 'column',
             overflow: 'hidden',
-            borderRight: '1px solid var(--border-subtle)',
           }}>
             {/* Messages */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }} className="scroll-area">
+            <div style={{ flex: 1, overflowY: 'auto', padding: '40px 10%' }} className="scroll-area">
+              {!ollamaOnline && (
+                <div style={{ marginBottom: '24px', padding: '12px 16px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '8px', fontSize: '12px', color: 'var(--amber-400)', fontFamily: 'var(--font-mono)' }}>
+                  ⚡ Start Ollama locally to activate Vishesh AI
+                </div>
+              )}
+
+              {messages.length === 0 && isThinking && (
+                <div style={{ display: 'flex', justifyContent: 'center', opacity: 0.5 }}>
+                  Preparing learning session...
+                </div>
+              )}
+
               {messages.map((msg) => {
                 const isVishesh = msg.role === 'assistant';
                 return (
                   <div key={msg.id} style={{
-                    display: 'flex', gap: '14px', marginBottom: '24px',
-                    flexDirection: isVishesh ? 'row' : 'row',
+                    display: 'flex', gap: '16px', marginBottom: '32px',
+                    flexDirection: isVishesh ? 'row' : 'row-reverse',
                     animation: 'fadeInUp 0.35s ease both',
                   }}>
                     {/* Avatar */}
-                    <div style={{
-                      width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                      background: isVishesh
-                        ? 'linear-gradient(135deg, var(--violet-700), var(--violet-500))'
-                        : 'rgba(255,255,255,0.1)',
-                      border: `1px solid ${isVishesh ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.15)'}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '12px', fontWeight: 700,
-                      boxShadow: isVishesh ? '0 0 10px rgba(124,58,237,0.3)' : 'none',
-                    }}>
-                      {isVishesh ? '◈' : ''}
-                    </div>
-
-                    <div style={{ maxWidth: '78%' }}>
+                    {isVishesh && (
                       <div style={{
-                        fontSize: '14px', color: 'var(--text-primary)',
-                        lineHeight: 1.7, whiteSpace: 'pre-wrap',
-                        padding: isVishesh ? '0' : '12px 16px',
-                        background: isVishesh ? 'transparent' : 'rgba(124,58,237,0.12)',
+                        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                        background: 'var(--violet-600)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '12px', color: 'white', marginTop: '4px'
+                      }}>◈</div>
+                    )}
+
+                    <div style={{ maxWidth: '85%' }}>
+                      <div style={{
+                        fontSize: '15px', color: 'white',
+                        lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                        padding: isVishesh ? '4px 0' : '16px 20px',
+                        background: isVishesh ? 'transparent' : 'rgba(124,58,237,0.1)',
                         border: isVishesh ? 'none' : '1px solid rgba(124,58,237,0.2)',
-                        borderRadius: isVishesh ? '0' : '4px 14px 14px 14px',
+                        borderRadius: isVishesh ? '0' : '12px',
+                        fontFamily: 'Inter, sans-serif'
                       }}>
                         {msg.content}
                         {msg.streaming && (
                           <span style={{
-                            display: 'inline-block', width: '2px', height: '15px',
-                            background: 'var(--violet-400)', marginLeft: '2px',
-                            verticalAlign: 'middle',
-                            animation: 'pulse-dot 0.7s ease-in-out infinite',
+                            display: 'inline-block', width: '3px', height: '16px',
+                            background: 'var(--violet-400)', marginLeft: '4px',
+                            verticalAlign: 'middle', animation: 'pulse-dot 0.7s infinite',
                           }} />
                         )}
                       </div>
@@ -260,18 +303,18 @@ export default function LearningSession() {
                 );
               })}
 
-              {/* Waveform when AI is streaming */}
+              {/* Waveform / Thinking states */}
               {isStreaming && (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '12px', animation: 'fadeIn 0.3s ease' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '16px' }}>
                   <AnimatedWaveform active={true} />
                 </div>
               )}
-              {isThinking && (
-                <div style={{ display: 'flex', gap: '14px', alignItems: 'center', marginBottom: '24px' }}>
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--violet-700), var(--violet-500))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', boxShadow: '0 0 10px rgba(124,58,237,0.3)' }}>◈</div>
-                  <div style={{ display: 'flex', gap: '5px' }}>
+              {isThinking && messages.length > 0 && (
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '32px' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--violet-600)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>◈</div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
                     {[0,1,2].map((i) => (
-                      <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--violet-400)', animation: 'pulse-dot 1.2s ease-in-out infinite', animationDelay: `${i * 200}ms` }} />
+                      <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--violet-400)', animation: 'pulse-dot 1.2s infinite', animationDelay: `${i * 200}ms` }} />
                     ))}
                   </div>
                 </div>
@@ -279,40 +322,25 @@ export default function LearningSession() {
               <div ref={bottomRef} />
             </div>
 
-            {/* Waveform idle indicator */}
-            {!isStreaming && !isThinking && (
-              <div style={{ padding: '0 32px 8px', display: 'flex', justifyContent: 'center' }}>
-                <AnimatedWaveform active={false} />
-              </div>
-            )}
-
-            {/* INPUT BAR — exact reference match */}
-            <div style={{
-              borderTop: '1px solid var(--border-subtle)',
-              padding: '16px 24px',
-              background: 'rgba(8,8,14,0.9)',
-            }}>
-              {!ollamaOnline && (
-                <div style={{ marginBottom: '10px', padding: '8px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '8px', fontSize: '11px', color: 'var(--amber-400)', fontFamily: 'var(--font-mono)' }}>
-                  ⚡ Start Ollama locally to activate Vishesh AI
+            {/* INPUT BAR */}
+            <div style={{ padding: '0 10% 40px' }}>
+              {!isStreaming && !isThinking && messages.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                  <AnimatedWaveform active={false} />
                 </div>
               )}
               <div style={{
-                display: 'flex', alignItems: 'center', gap: '10px',
+                display: 'flex', alignItems: 'center', gap: '12px',
                 background: 'rgba(14,14,22,0.8)',
-                border: '1px solid var(--border-default)',
-                borderRadius: '10px', padding: '4px 12px 4px 4px',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '12px', padding: '8px 16px 8px 8px',
                 transition: 'border-color 0.2s ease',
               }}
               onFocusCapture={(e) => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.5)'; }}
-              onBlurCapture={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+              onBlurCapture={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
               >
                 <button style={{
-                  width: 32, height: 32, borderRadius: '8px',
-                  background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.25)',
-                  cursor: 'pointer', color: 'var(--violet-300)', fontSize: '16px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0,
+                  background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '20px', cursor: 'pointer', padding: '0 8px'
                 }}>+</button>
                 <textarea
                   ref={inputRef}
@@ -324,27 +352,19 @@ export default function LearningSession() {
                   disabled={isStreaming}
                   style={{
                     flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                    color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '13px',
-                    resize: 'none', maxHeight: '100px', overflow: 'auto',
+                    color: 'white', fontFamily: 'var(--font-mono)', fontSize: '14px',
+                    resize: 'none', maxHeight: '120px', overflow: 'auto',
                     lineHeight: 1.5, padding: '8px 0',
                   }}
                 />
-                <button
-                  onClick={() => {}}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '16px', padding: '4px', flexShrink: 0 }}
-                  aria-label="Voice input"
-                >🎙</button>
+                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px', padding: '4px' }}>🎙</button>
                 <button
                   onClick={isStreaming ? () => abortRef.current?.abort() : sendMessage}
-                  id="lesson-send-btn"
                   style={{
-                    width: 32, height: 32, borderRadius: '8px', flexShrink: 0,
-                    background: input.trim() || isStreaming ? 'linear-gradient(135deg, var(--violet-600), var(--violet-500))' : 'rgba(139,92,246,0.1)',
-                    border: 'none', cursor: 'pointer', color: 'white',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px',
-                    transition: 'all 0.2s ease',
+                    background: 'none', border: 'none', cursor: 'pointer', 
+                    color: input.trim() || isStreaming ? 'white' : 'var(--text-muted)', 
+                    fontSize: '18px', padding: '4px'
                   }}
-                  aria-label="Send message"
                 >
                   {isStreaming ? '■' : '▷'}
                 </button>
@@ -352,107 +372,125 @@ export default function LearningSession() {
             </div>
           </div>
 
-          {/* RIGHT — Video + Curriculum */}
+          {/* RIGHT: VISHESH VIDEO & CURRICULUM */}
           <div style={{
-            width: '260px', display: 'flex', flexDirection: 'column',
-            background: 'rgba(8,8,14,0.8)', flexShrink: 0,
+            width: '380px', display: 'flex', flexDirection: 'column',
+            background: 'var(--bg-void)', flexShrink: 0,
+            borderLeft: '1px solid rgba(255, 255, 255, 0.05)',
           }}>
-            {/* Vishesh Video Panel */}
-            <div style={{ position: 'relative', flexShrink: 0 }}>
+            
+            {/* VISHESH LIVE PANEL */}
+            <div style={{ padding: '32px 32px 16px' }}>
               <div style={{
-                height: '160px',
-                background: 'linear-gradient(135deg, #0f1523, #1a1535)',
+                width: '100%', height: '200px',
+                background: 'linear-gradient(135deg, #101827, #1e1b4b)',
+                borderRadius: '12px',
                 position: 'relative', overflow: 'hidden',
-                borderBottom: '1px solid var(--border-subtle)',
+                border: '1px solid rgba(255,255,255,0.05)',
+                boxShadow: '0 12px 24px rgba(0,0,0,0.5)',
               }}>
-                {/* Futuristic avatar/person placeholder */}
+                {/* Mock Video Image / Avatar */}
                 <div style={{
                   position: 'absolute', inset: 0,
-                  background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(124,58,237,0.15))',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexDirection: 'column', gap: '8px',
+                  background: 'url("https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=400&h=250") center/cover',
+                  opacity: 0.8
                 }}>
-                  <div style={{
-                    width: 64, height: 64, borderRadius: '50%',
-                    background: 'linear-gradient(135deg, var(--violet-700), var(--cyan-500))',
-                    border: '2px solid rgba(34,211,238,0.4)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '28px', boxShadow: '0 0 24px rgba(34,211,238,0.3)',
-                    animation: 'glow-pulse 3s ease-in-out infinite',
-                  }}>V</div>
+                  {/* Holographic overlay */}
+                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(34,211,238,0.2), rgba(124,58,237,0.2))', mixBlendMode: 'overlay' }} />
                 </div>
 
-                {/* Label overlay */}
+                {/* Overlay Controls & Info */}
                 <div style={{
-                  position: 'absolute', bottom: '10px', left: '10px',
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  background: 'rgba(5,5,10,0.85)', borderRadius: '6px',
-                  padding: '4px 10px', backdropFilter: 'blur(8px)',
+                  position: 'absolute', bottom: '12px', left: '12px',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  background: 'rgba(5, 5, 8, 0.8)', borderRadius: '4px',
+                  padding: '6px 12px', backdropFilter: 'blur(4px)',
                 }}>
-                  <div className="dot-live" style={{ width: 6, height: 6 }} />
-                  <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan-400)', letterSpacing: '0.08em' }}>
+                  <div className="dot-live" style={{ width: 8, height: 8, background: 'var(--rose-500)', borderRadius: '50%', boxShadow: '0 0 8px var(--rose-500)' }} />
+                  <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'white', letterSpacing: '0.05em' }}>
                     VISHESH AI · EXPLORING LORA
                   </span>
                 </div>
-                <div style={{ position: 'absolute', bottom: '10px', right: '10px', display: 'flex', gap: '6px' }}>
-                  <button style={{ background: 'rgba(10,10,15,0.8)', border: '1px solid var(--border-subtle)', borderRadius: '4px', padding: '4px 7px', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '11px' }}>⊡</button>
-                  <button style={{ background: 'rgba(10,10,15,0.8)', border: '1px solid var(--border-subtle)', borderRadius: '4px', padding: '4px 7px', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '11px' }}>🎙</button>
+                
+                <div style={{ position: 'absolute', bottom: '12px', right: '12px', display: 'flex', gap: '8px' }}>
+                  <div style={{ background: 'rgba(5,5,8,0.8)', padding: '6px 8px', borderRadius: '4px', backdropFilter: 'blur(4px)' }}>
+                    <span style={{ fontSize: '12px', color: 'white' }}>🎥</span>
+                  </div>
+                  <div style={{ background: 'rgba(5,5,8,0.8)', padding: '6px 8px', borderRadius: '4px', backdropFilter: 'blur(4px)' }}>
+                    <span style={{ fontSize: '12px', color: 'white' }}>🎙</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Curriculum section */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }} className="scroll-area">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <span style={{ fontWeight: 700, fontSize: '14px', fontFamily: 'var(--font-display)' }}>Curriculum</span>
+            {/* CURRICULUM SIDEBAR */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 32px' }} className="scroll-area">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <span style={{ fontWeight: 800, fontSize: '16px', color: 'white', fontFamily: 'Inter, sans-serif' }}>Curriculum</span>
                 <span style={{
-                  fontSize: '9px', fontFamily: 'var(--font-mono)', padding: '3px 8px',
-                  background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.35)',
-                  borderRadius: '4px', color: 'var(--violet-300)', fontWeight: 700,
-                }}>Phase 1</span>
+                  fontSize: '10px', fontFamily: 'var(--font-mono)', padding: '4px 10px',
+                  background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.3)',
+                  borderRadius: '4px', color: 'var(--violet-400)', fontWeight: 700,
+                }}>PHASE 1</span>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {CURRICULUM.map((item) => {
+              {/* Current Bootcamp Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '8px',
+                  background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--violet-400)', fontSize: '20px'
+                }}>◈</div>
+                <div>
+                  <div style={{ color: 'white', fontWeight: 600, fontSize: '14px' }}>Vishesh Learning Lab</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>Day {currentDay} of 30</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {loadingCurriculum && <div style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center' }}>Loading curriculum...</div>}
+                
+                {curriculum.map((item) => {
                   const isActive = item.status === 'active';
                   const isComplete = item.status === 'complete';
                   const isLocked = item.status === 'locked';
+                  
                   return (
                     <div key={item.day} style={{
-                      padding: '10px 12px',
-                      background: isActive ? 'rgba(124,58,237,0.18)' : 'transparent',
-                      border: `1px solid ${isActive ? 'rgba(124,58,237,0.4)' : 'transparent'}`,
+                      padding: '16px',
+                      background: isActive ? 'rgba(124,58,237,0.1)' : 'transparent',
+                      border: `1px solid ${isActive ? 'rgba(124,58,237,0.3)' : 'transparent'}`,
                       borderRadius: '8px',
                       cursor: isLocked ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.15s ease',
-                      opacity: isLocked ? 0.5 : 1,
+                      transition: 'all 0.2s ease',
+                      opacity: isLocked ? 0.4 : 1,
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <div style={{
-                          width: 22, height: 22, borderRadius: '5px', flexShrink: 0,
-                          background: isActive ? 'rgba(124,58,237,0.4)' : isComplete ? 'rgba(16,185,129,0.2)' : 'rgba(139,92,246,0.08)',
-                          border: `1px solid ${isActive ? 'rgba(124,58,237,0.6)' : isComplete ? 'rgba(16,185,129,0.3)' : 'rgba(139,92,246,0.15)'}`,
+                          width: 32, height: 32, borderRadius: '4px', flexShrink: 0,
+                          background: isActive ? 'var(--violet-600)' : isComplete ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: '9px', fontWeight: 700, fontFamily: 'var(--font-mono)',
-                          color: isActive ? 'var(--violet-300)' : isComplete ? 'var(--emerald-400)' : 'var(--text-muted)',
+                          fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)',
+                          color: isActive ? 'white' : 'var(--text-muted)',
                         }}>
-                          {isComplete ? '✓' : item.day}
+                          {String(item.day).padStart(2, '0')}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{
-                            fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-mono)',
-                            color: isActive ? 'var(--violet-300)' : isComplete ? 'var(--text-muted)' : 'var(--text-muted)',
-                            lineHeight: 1.3,
+                            fontSize: '13px', fontWeight: 600,
+                            color: isActive ? 'var(--violet-300)' : 'var(--text-muted)',
+                            marginBottom: '4px'
                           }}>{item.topic}</div>
                           {item.sublabel && (
-                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-                              {item.sublabel}
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                              {isComplete ? 'Completed · 100%' : (isActive ? `Active · ${item.sublabel}` : item.sublabel)}
                             </div>
                           )}
-                          {isComplete && <div style={{ fontSize: '10px', color: 'var(--emerald-400)', fontFamily: 'var(--font-mono)' }}>Completed · 100%</div>}
                         </div>
-                        {isActive && <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--violet-400)', boxShadow: '0 0 6px var(--violet-400)', flexShrink: 0 }} />}
-                        {isLocked && <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>🔒</span>}
+                        {isComplete && <div style={{ color: 'var(--text-muted)', fontSize: '14px' }}>✓</div>}
+                        {isActive && <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--violet-400)', boxShadow: '0 0 6px var(--violet-400)' }} />}
+                        {isLocked && <div style={{ color: 'var(--text-muted)', fontSize: '14px' }}>🔒</div>}
                       </div>
                     </div>
                   );
@@ -460,22 +498,21 @@ export default function LearningSession() {
               </div>
             </div>
 
-            {/* View Detailed Performance */}
-            <div style={{ padding: '12px', borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+            {/* View Detailed Performance Footer */}
+            <div style={{ padding: '24px 32px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
               <button
                 onClick={() => navigate('analytics')}
-                id="lesson-performance-btn"
                 style={{
-                  width: '100%', padding: '12px',
-                  background: 'rgba(14,14,22,0.8)',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: '8px', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '11px',
+                  width: '100%', padding: '14px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '4px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                  color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '12px',
                   transition: 'all 0.2s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(124,58,237,0.4)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--text-muted)'; e.currentTarget.style.color = 'white'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
               >
                 <span>▦</span> View Detailed Performance
               </button>
@@ -483,6 +520,6 @@ export default function LearningSession() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

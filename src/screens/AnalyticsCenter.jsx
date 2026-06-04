@@ -9,27 +9,11 @@ import {
   PolarGrid, PolarAngleAxis, Radar
 } from 'recharts';
 
-const weeklyData = [
-  { day: 'Mon', score: 62, velocity: 55, retention: 70 },
-  { day: 'Tue', score: 70, velocity: 68, retention: 74 },
-  { day: 'Wed', score: 68, velocity: 72, retention: 76 },
-  { day: 'Thu', score: 78, velocity: 78, retention: 80 },
-  { day: 'Fri', score: 82, velocity: 75, retention: 85 },
-  { day: 'Sat', score: 88, velocity: 82, retention: 87 },
-  { day: 'Sun', score: 85, velocity: 80, retention: 89 },
-];
-
 const monthlyData = Array.from({ length: 14 }, (_, i) => ({
   day: i + 1,
   growth: 20 + i * 3.5 + Math.sin(i) * 4,
   consistency: 60 + i * 1.8,
 }));
-
-const radarData = [
-  { skill: 'Technical', value: 72 }, { skill: 'Communication', value: 81 },
-  { skill: 'Problem Solving', value: 68 }, { skill: 'Retention', value: 75 },
-  { skill: 'Velocity', value: 78 }, { skill: 'Consistency', value: 90 },
-];
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -60,7 +44,24 @@ function MetricCard({ label, value, sub, color, delta }) {
 
 export default function AnalyticsCenter() {
   const { state } = useApp();
-  const { scores, currentDay, streak } = state;
+  const { scores, currentDay, streak, progressHistory } = state;
+
+  const radarData = [
+    { skill: 'Technical', value: scores.technical || 10 },
+    { skill: 'Communication', value: scores.communication || 10 },
+    { skill: 'Problem Solving', value: scores.problemSolving || 10 },
+    { skill: 'Retention', value: scores.retention || 10 },
+    { skill: 'Velocity', value: scores.velocity || 10 },
+    { skill: 'Consistency', value: scores.consistency || 10 },
+  ];
+
+  // Map progressHistory to the format expected by the LineChart
+  const weeklyData = (progressHistory?.length > 0 ? progressHistory : [{ day: 1, score: 0 }]).map(p => ({
+    day: `Day ${p.day}`,
+    score: p.score,
+    velocity: scores.velocity || 0, // Using static velocity for now
+    retention: scores.retention || 0, // Using static retention for now
+  }));
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-void)', overflow: 'hidden' }}>

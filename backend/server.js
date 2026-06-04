@@ -14,6 +14,7 @@ app.use(express.json());
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/progress', require('./routes/progress'));
 app.use('/api/chat', require('./routes/chat'));
+app.use('/api/curriculum', require('./routes/curriculum'));
 
 // Basic Health Check
 app.get('/health', (req, res) => {

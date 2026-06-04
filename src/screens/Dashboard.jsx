@@ -6,21 +6,6 @@ import { useApp } from '../context/AppContext';
 import Sidebar from '../components/Sidebar';
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, AreaChart, Area } from 'recharts';
 
-const radarData = [
-  { skill: 'Technical', value: 72, full: 100 },
-  { skill: 'Problem\nSolving', value: 68, full: 100 },
-  { skill: 'Communication', value: 81, full: 100 },
-  { skill: 'Consistency', value: 90, full: 100 },
-  { skill: 'Retention', value: 65, full: 100 },
-  { skill: 'Velocity', value: 78, full: 100 },
-];
-
-const progressData = [
-  { day: 1, score: 20 }, { day: 3, score: 35 }, { day: 5, score: 45 },
-  { day: 7, score: 52 }, { day: 9, score: 60 }, { day: 11, score: 68 },
-  { day: 14, score: 75 },
-];
-
 function ScoreRing({ value, label, color = 'var(--violet-400)', size = 80 }) {
   const radius = (size - 10) / 2;
   const circ = 2 * Math.PI * radius;
@@ -52,7 +37,18 @@ function ScoreRing({ value, label, color = 'var(--violet-400)', size = 80 }) {
 
 export default function Dashboard() {
   const { state, navigate } = useApp();
-  const { selectedBootcamp, currentDay, streak, scores, totalPoints } = state;
+  const { selectedBootcamp, currentDay, streak, scores, totalPoints, progressHistory } = state;
+
+  const radarData = [
+    { skill: 'Technical', value: scores.technical || 10, full: 100 },
+    { skill: 'Problem\nSolving', value: scores.problemSolving || 10, full: 100 },
+    { skill: 'Communication', value: scores.communication || 10, full: 100 },
+    { skill: 'Consistency', value: scores.consistency || 10, full: 100 },
+    { skill: 'Retention', value: scores.retention || 10, full: 100 },
+    { skill: 'Velocity', value: scores.velocity || 10, full: 100 },
+  ];
+
+  const progressData = progressHistory?.length > 0 ? progressHistory : [{ day: 1, score: 0 }];
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-void)', overflow: 'hidden' }}>

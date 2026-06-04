@@ -6,15 +6,6 @@ import { useApp } from '../context/AppContext';
 import Sidebar from '../components/Sidebar';
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts';
 
-const radarData = [
-  { skill: 'System Arch', value: 80 },
-  { skill: 'Algorithms', value: 72 },
-  { skill: 'Data Structs', value: 68 },
-  { skill: 'Security', value: 65 },
-  { skill: 'DevOps', value: 70 },
-  { skill: 'AI/ML', value: 85 },
-];
-
 const ACHIEVEMENTS = [
   { icon: '🔥', label: '7-Day Streak', color: '#f59e0b' },
   { icon: '⚡', label: 'Speed Learner', color: '#06b6d4' },
@@ -36,6 +27,15 @@ export default function SkillPassport() {
   const { state } = useApp();
   const { user, selectedBootcamp, scores, totalPoints, currentDay } = state;
   const shareUrl = `synapse.ai/passport/${user?.name?.toLowerCase().replace(/\s/g, '-') || 'operative'}`;
+
+  const radarData = [
+    { skill: 'System Arch', value: scores.technical || 50 },
+    { skill: 'Algorithms', value: scores.problemSolving || 50 },
+    { skill: 'Data Structs', value: scores.consistency || 50 },
+    { skill: 'Security', value: scores.retention || 50 },
+    { skill: 'DevOps', value: scores.velocity || 50 },
+    { skill: 'AI/ML', value: scores.communication || 50 },
+  ];
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-void)', overflow: 'hidden' }}>

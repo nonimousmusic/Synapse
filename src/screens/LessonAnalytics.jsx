@@ -5,24 +5,24 @@
 import { useApp } from '../context/AppContext';
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts';
 
-const radarData = [
-  { skill: 'System Arch', baseline: 55, current: 80 },
-  { skill: 'Algorithmic Logic', baseline: 50, current: 72 },
-  { skill: 'Data Structs', baseline: 45, current: 68 },
-  { skill: 'Security Protos', baseline: 40, current: 65 },
-  { skill: 'Opto-Mechanics', baseline: 48, current: 70 },
-  { skill: 'Neural Nets', baseline: 52, current: 78 },
-];
-
-const PEERS = [
-  { rank: 1, name: 'Operative_Kyla', tier: 'Architect Tier III', pts: 9420, highlight: false },
-  { rank: 2, name: 'J_Vance_Sys', tier: 'Architect Tier II', pts: 8890, highlight: false },
-  { rank: 14, name: 'You', tier: '+500 Recent', pts: 4150, highlight: true },
-];
-
 export default function LessonAnalytics() {
   const { state, navigate } = useApp();
   const { scores, currentDay } = state;
+
+  const radarData = [
+    { skill: 'System Arch', baseline: 55, current: scores.technical || 60 },
+    { skill: 'Algorithmic Logic', baseline: 50, current: scores.problemSolving || 50 },
+    { skill: 'Data Structs', baseline: 45, current: scores.consistency || 45 },
+    { skill: 'Security Protos', baseline: 40, current: scores.retention || 40 },
+    { skill: 'Opto-Mechanics', baseline: 48, current: scores.velocity || 50 },
+    { skill: 'Neural Nets', baseline: 52, current: scores.communication || 55 },
+  ];
+
+  const PEERS = [
+    { rank: 1, name: 'Operative_Kyla', tier: 'Architect Tier III', pts: 9420, highlight: false },
+    { rank: 2, name: 'J_Vance_Sys', tier: 'Architect Tier II', pts: 8890, highlight: false },
+    { rank: 14, name: 'You', tier: '+500 Recent', pts: state.totalPoints || 4150, highlight: true },
+  ];
 
   return (
     <div style={{

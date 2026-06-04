@@ -13,7 +13,17 @@ router.post('/register', async (req, res) => {
     }
 
     user = await User.create({ name, email, password, role: role || 'USER' });
-    await Progress.create({ userId: user.id });
+    await Progress.create({ 
+      userId: user.id,
+      technicalScore: 40,
+      communicationScore: 50,
+      problemSolvingScore: 45,
+      consistencyScore: 60,
+      retentionScore: 30,
+      velocityScore: 40,
+      growthScore: 45,
+      history: [{ day: 1, score: 45 }]
+    });
 
     res.json({ message: 'User created successfully', user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (error) {

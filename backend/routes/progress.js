@@ -21,6 +21,11 @@ router.post('/:userId/complete-day', async (req, res) => {
 
     progress.currentDay += 1;
     progress.streak += 1;
+    
+    const currentHistory = progress.history || [];
+    currentHistory.push({ day: progress.currentDay, score: progress.growthScore || 0 });
+    progress.history = currentHistory;
+
     await progress.save();
 
     res.json({ message: 'Day completed', progress });
@@ -38,10 +43,28 @@ router.post('/:userId/assessment', async (req, res) => {
 
     if (scores.knowledge) progress.knowledgeScore = scores.knowledge;
     if (scores.velocity) progress.velocityScore = scores.velocity;
+    if (scores.technical) progress.technicalScore = scores.technical;
+    if (scores.communication) progress.communicationScore = scores.communication;
+    if (scores.problemSolving) progress.problemSolvingScore = scores.problemSolving;
+    if (scores.consistency) progress.consistencyScore = scores.consistency;
+    if (scores.retention) progress.retentionScore = scores.retention;
     
     // Growth score formula
-    progress.growthScore = Math.round((progress.knowledgeScore + progress.velocityScore) / 2);
+    const allScores = [
+      progress.technicalScore || 70,
+      progress.problemSolvingScore || 65,
+      progress.communicationScore || 75,
+      progress.consistencyScore || 80,
+      progress.retentionScore || 60,
+      progress.velocityScore || 70
+    ];
+    progress.growthScore = Math.round(allScores.reduce((a,b) => a+b, 0) / allScores.length);
     
+    // Append to history
+    const currentHistory = progress.history || [];
+    currentHistory.push({ day: progress.currentDay, score: progress.growthScore });
+    progress.history = currentHistory;
+
     await progress.save();
     res.json({ message: 'Assessment saved', progress });
   } catch (error) {

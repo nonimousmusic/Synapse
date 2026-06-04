@@ -97,6 +97,23 @@ function reducer(state, action) {
       return { ...state, messageHistory: [] };
     case 'TOGGLE_SIDEBAR':
       return { ...state, sidebarOpen: !state.sidebarOpen };
+    case 'FETCH_PROGRESS_SUCCESS':
+      return {
+        ...state,
+        currentDay: action.payload.currentDay,
+        streak: action.payload.streak,
+        growthScore: action.payload.growthScore,
+        scores: {
+          knowledge: action.payload.knowledgeScore || 0,
+          velocity: action.payload.velocityScore || 0,
+          technical: action.payload.technicalScore || 0,
+          communication: action.payload.communicationScore || 0,
+          problemSolving: action.payload.problemSolvingScore || 0,
+          consistency: action.payload.consistencyScore || 0,
+          retention: action.payload.retentionScore || 0,
+        },
+        progressHistory: action.payload.history || [],
+      };
     case 'RESTORE_SESSION':
       return { ...state, ...action.payload };
     default:
@@ -107,14 +124,12 @@ function reducer(state, action) {
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Restore session from sessionStorage (not localStorage — avoids XSS token theft)
-  // TODO(security): In production, session tokens should be in HttpOnly cookies only
+  // Restore session from sessionStorage
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Only restore non-sensitive UI state
         dispatch({
           type: 'RESTORE_SESSION',
           payload: {
@@ -129,14 +144,29 @@ export function AppProvider({ children }) {
             streak: parsed.streak || 0,
             totalPoints: parsed.totalPoints || 0,
             growthScore: parsed.growthScore || 0,
+            progressHistory: parsed.progressHistory || [],
             currentScreen: parsed.isAuthenticated ? (parsed.user?.role === 'SUPER_ADMIN' ? 'admin-dashboard' : (parsed.selectedBootcamp ? 'dashboard' : 'hub')) : 'landing',
           },
         });
       }
     } catch {
-      // Silently fail — don't expose error details
+      // Silently fail
     }
   }, []);
+
+  // Fetch real progress from backend when authenticated
+  useEffect(() => {
+    if (state.isAuthenticated && state.user?.id) {
+      fetch(`http://localhost:5001/api/progress/${state.user.id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.error) {
+            dispatch({ type: 'FETCH_PROGRESS_SUCCESS', payload: data });
+          }
+        })
+        .catch(err => console.error("Failed to fetch progress", err));
+    }
+  }, [state.isAuthenticated, state.user]);
 
   // Persist session state (non-sensitive only)
   useEffect(() => {

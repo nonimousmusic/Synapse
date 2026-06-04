@@ -24,6 +24,30 @@ module.exports = (sequelize, DataTypes) => {
     velocityScore: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
+    },
+    technicalScore: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    communicationScore: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    problemSolvingScore: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    consistencyScore: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    retentionScore: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    history: {
+      type: DataTypes.JSON,
+      defaultValue: [],
     }
   });
 };
