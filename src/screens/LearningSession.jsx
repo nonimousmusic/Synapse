@@ -49,6 +49,9 @@ export default function LearningSession() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   
+  const speechBufferRef = useRef('');
+  const lastSpokenIndexRef = useRef(0);
+  
   const [expressionStatus, setExpressionStatus] = useState('Initializing Vision...');
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
@@ -117,14 +120,18 @@ export default function LearningSession() {
   }, [hasPermissions, currentDay, curriculum, selectedBootcamp, messages.length]);
 
   // --- Voice Setup ---
-  const speakMessage = (text) => {
-    if (!window.speechSynthesis) return;
+  const speakMessage = (text, onEnd) => {
+    if (!window.speechSynthesis) {
+       if (onEnd) onEnd();
+       return;
+    }
     const utterance = new SpeechSynthesisUtterance(text.replace(/\*/g, '')); // Strip markdown
     const voices = window.speechSynthesis.getVoices();
     // Try to find a good English voice
     utterance.voice = voices.find(v => v.lang.includes('en') && (v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel'))) || voices[0];
     utterance.rate = 1.05;
     utterance.pitch = 0.95;
+    if (onEnd) utterance.onend = onEnd;
     window.speechSynthesis.speak(utterance);
   };
 
@@ -234,6 +241,11 @@ export default function LearningSession() {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput('');
+    
+    // Stop speaking if user interrupts
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    speechBufferRef.current = '';
+    lastSpokenIndexRef.current = 0;
 
     const userMsg = { role: 'user', content: text, id: Date.now().toString() };
     setMessages((p) => [...p, userMsg]);
@@ -259,11 +271,35 @@ export default function LearningSession() {
       abortController: abortRef.current,
       onToken: (_, full) => {
         setMessages((p) => p.map((m) => m.id === aId ? { ...m, content: full } : m));
+        
+        // Streaming TTS logic: Check for sentence boundaries
+        const newText = full.slice(lastSpokenIndexRef.current);
+        const match = newText.match(/([.!?\n])\s/);
+        if (match) {
+          const endIndex = newText.indexOf(match[0]) + match[0].length;
+          const sentence = newText.slice(0, endIndex);
+          if (sentence.trim()) {
+            speakMessage(sentence);
+          }
+          lastSpokenIndexRef.current += endIndex;
+        }
       },
       onDone: (full) => {
         setMessages((p) => p.map((m) => m.id === aId ? { ...m, content: full, streaming: false } : m));
         setIsStreaming(false);
-        speakMessage(full);
+        
+        const autoMic = () => {
+          if (recognitionRef.current && !isListening) {
+             try { recognitionRef.current.start(); setIsListening(true); } catch (e) {}
+          }
+        };
+
+        const remaining = full.slice(lastSpokenIndexRef.current);
+        if (remaining.trim()) {
+          speakMessage(remaining, autoMic);
+        } else {
+          autoMic();
+        }
       },
       onError: (err) => {
         setMessages((p) => p.map((m) => m.id === aId ? { ...m, content: err, streaming: false } : m));
