@@ -113,7 +113,11 @@ export default function LearningSession() {
         }
       ]);
       setIsThinking(false);
-      speakMessage(introMessage || "Welcome to today's learning session. How are you doing?");
+      speakMessage(introMessage || "Welcome to today's learning session. How are you doing?", () => {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.start(); setIsListening(true); } catch (e) {}
+        }
+      });
     };
 
     startSession();
