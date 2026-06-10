@@ -32,10 +32,6 @@ const initialState = {
   streak: 0,
   totalPoints: 0,
   growthScore: 0,
-  // Vishesh
-  ollamaOnline: false,
-  ollamaModel: null,
-  availableModels: [],
   // UI
   currentScreen: 'loading', // loading | landing | auth | hub | bootcamp-init | dashboard | lesson | assessment | analytics | skill-passport | community | certificates | settings | milestone | results
   sidebarOpen: true,
@@ -81,13 +77,6 @@ function reducer(state, action) {
     }
     case 'UPDATE_SCORES':
       return { ...state, scores: { ...state.scores, ...action.payload } };
-    case 'SET_OLLAMA_STATUS':
-      return {
-        ...state,
-        ollamaOnline: action.payload.online,
-        ollamaModel: action.payload.model,
-        availableModels: action.payload.models || [],
-      };
     case 'ADD_MESSAGE':
       return {
         ...state,
@@ -157,7 +146,7 @@ export function AppProvider({ children }) {
   // Fetch real progress from backend when authenticated
   useEffect(() => {
     if (state.isAuthenticated && state.user?.id) {
-      fetch(`http://localhost:5001/api/progress/${state.user.id}`)
+      fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/progress/${state.user.id}`)
         .then(res => res.json())
         .then(data => {
           if (!data.error) {
