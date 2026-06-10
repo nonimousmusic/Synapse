@@ -1,55 +1,61 @@
 const express = require('express');
 const router = express.Router();
-const http = require('http'); // For Ollama proxy
-const { trugenGenerate } = require('../ai/trugen');
+const { trugenGenerate, trugenStream } = require('../ai/trugen');
 
-// Standard chat endpoint
 router.post('/message', async (req, res) => {
   try {
-    const { message, useTruGen = false } = req.body;
-
-    if (useTruGen) {
-      // Use the requested TruGen API
-      const response = await trugenGenerate(message);
-      return res.json({ response });
-    } else {
-      // Fallback local response if Ollama is not configured for non-streaming
-      res.json({ response: `[Local Vishesh] I received your message: ${message}` });
-    }
+    const { message, contextHistory = [] } = req.body;
+    const response = await trugenGenerate(message, contextHistory);
+    res.json({ response });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Ollama Streaming Proxy
-// Securely proxies the streaming response from local Ollama (11434) to the frontend client
-router.post('/stream', (req, res) => {
-  const { prompt, model = 'llama3', system = '' } = req.body;
+router.post('/stream', async (req, res) => {
+  try {
+    const { prompt, contextHistory = [] } = req.body;
+    const stream = await trugenStream(prompt, contextHistory);
+    if (!stream) {
+      const response = await trugenGenerate(prompt, contextHistory);
+      return res.json({ response });
+    }
+    const reader = stream.getReader();
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
 
-  const ollamaReq = http.request({
-    hostname: '127.0.0.1',
-    port: 11434,
-    path: '/api/generate',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  }, (ollamaRes) => {
-    res.writeHead(ollamaRes.statusCode, ollamaRes.headers);
-    ollamaRes.pipe(res); // Pipe the stream directly back to the client
-  });
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-  ollamaReq.on('error', (e) => {
-    console.error(`Ollama connection error: ${e.message}`);
-    res.status(502).json({ error: 'Failed to connect to local Ollama instance.' });
-  });
-
-  ollamaReq.write(JSON.stringify({
-    model: model,
-    prompt: prompt,
-    system: system || 'You are Vishesh, an elite AI mentor.',
-    stream: true
-  }));
-  
-  ollamaReq.end();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        res.write('data: [DONE]\n\n');
+        res.end();
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.trim() === '') continue;
+        try {
+          const parsed = JSON.parse(line);
+          const content = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text || '';
+          if (content) {
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          }
+        } catch {
+          res.write(`data: ${JSON.stringify({ content: line })}\n\n`);
+        }
+      }
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 module.exports = router;
